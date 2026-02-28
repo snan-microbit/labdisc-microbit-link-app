@@ -2,7 +2,7 @@
  * app.js — UI controller
  * 
  * Wires the Bridge module to DOM elements.
- * Handles button clicks, state rendering, and debug display.
+ * Exposes `window.bridge` for console debugging.
  */
 
 import { Bridge } from '../bridge/bridge.js';
@@ -18,6 +18,12 @@ const $ = id => document.getElementById(id);
 const bridge = new Bridge();
 const logger = new Logger($('logBody'));
 logger.counterEl = $('logCount');
+
+// Expose for console debugging:
+//   bridge.labdisc.startOnline()
+//   bridge.labdisc.startExperiment()
+//   bridge.labdisc.stopStreaming()
+window.bridge = bridge;
 
 // ─── Wire bridge to UI ───
 
@@ -48,16 +54,10 @@ window.handleMode = (value) => {
 
 window.handleManualStream = async () => {
   if (bridge.labdisc.isStreaming) {
-    await bridge.labdisc.stopStreaming();
-  } else if (bridge.labdisc.isConnected) {
-    if (bridge.mode === 'fast') {
-      await bridge.labdisc.startExperiment();
-    } else {
-      await bridge.labdisc.startOnline();
-    }
-    bridge.uartSentCount = 0;
+    await bridge.manualStopStream();
+  } else {
+    await bridge.manualStartStream();
   }
-  renderState();
 };
 
 // ─── Render ───
@@ -93,7 +93,7 @@ function renderState() {
   // Streaming status
   const streaming = s.labdisc === ConnectionState.STREAMING;
   const streamLabel = streaming
-    ? `Enviando datos · ${s.mode === 'fast' ? '25 Hz' : '1 Hz'} · ${s.packetCount} paquetes`
+    ? `${s.mode === 'fast' ? '25 Hz' : '1 Hz'} · ${s.packetCount} pkt${s.uartSentCount > 0 ? ' · → ' + s.uartSentCount + ' uart' : ''}`
     : 'Idle';
   $('streamStatus').textContent = streamLabel;
   $('streamStatus').className = `stream-status ${streaming ? 'active' : ''}`;
@@ -103,9 +103,11 @@ function renderState() {
   $('btnStream').className = `btn ${streaming ? 'danger' : 'accent'}`;
   $('btnStream').disabled = !labConn;
 
-  // UART info
-  if (s.uartSentCount > 0) {
-    $('uartInfo').textContent = `→ micro:bit: ${s.uartSentCount} líneas enviadas`;
+  // UART line (shows even without micro:bit, for debug)
+  if (s.lastUartLine) {
+    $('uartInfo').textContent = s.uartSentCount > 0
+      ? `→ micro:bit: ${s.uartSentCount} líneas`
+      : '→ UART (micro:bit no conectada)';
     $('uartLine').textContent = s.lastUartLine;
   } else {
     $('uartInfo').textContent = '';
@@ -119,7 +121,7 @@ function renderState() {
 function renderSensorValues(values) {
   const grid = $('sensorGrid');
   if (!values || values.length === 0) {
-    grid.innerHTML = '<div class="no-data">Sin datos</div>';
+    grid.innerHTML = '<div class="no-data">Conectá el Labdisc para ver los sensores</div>';
     return;
   }
 

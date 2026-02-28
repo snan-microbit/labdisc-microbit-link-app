@@ -3,11 +3,10 @@
  * 
  * Coordinates the flow: Labdisc → decode → convert → format → micro:bit
  * 
- * Responsibilities:
- * - Listens for Labdisc data events
- * - Converts values to UART CSV format
- * - Sends formatted data to the micro:bit
- * - Manages auto-start/stop based on connection state of both devices
+ * Auto-stream rules:
+ * - Both devices connected → auto-start streaming
+ * - micro:bit disconnects during auto-stream → auto-stop
+ * - Manual stream (button) → works without micro:bit, no auto-stop
  */
 
 import { LabdiscConnection, ConnectionState } from '../labdisc/connection.js';
@@ -16,69 +15,52 @@ import { formatForUART, formatForDisplay } from './formatter.js';
 
 export class Bridge {
   constructor() {
-    /** @type {LabdiscConnection} */
     this.labdisc = new LabdiscConnection();
-
-    /** @type {MicrobitBLE} */
     this.microbit = new MicrobitBLE();
 
-    /** @type {Object[]} Latest display values for UI */
     this.displayValues = [];
-
-    /** @type {string} Latest UART line sent */
     this.lastUartLine = '';
-
-    /** @type {number} Count of UART messages sent to micro:bit */
     this.uartSentCount = 0;
+    this.mode = 'normal'; // 'normal' (0x81, 1Hz) or 'fast' (0x84, 25Hz)
 
-    /** @type {string} Streaming mode: 'normal' (0x81, 1Hz) or 'fast' (0x84, 25Hz) */
-    this.mode = 'normal';
+    /** true if streaming was started by auto-stream (not manual button) */
+    this._autoStarted = false;
 
-    // ─── Callbacks ───
-    
-    /** @type {function()} Called when any state changes (for UI refresh) */
     this.onUpdate = null;
-
-    /** @type {function(string, string)} Log (type, message) */
     this.onLog = null;
 
-    // ─── Wire internal events ───
     this._wireLabdisc();
     this._wireMicrobit();
   }
 
   // ─── Public API ───
 
-  /** Connect to Labdisc */
-  async connectLabdisc() {
-    await this.labdisc.connect();
-  }
+  async connectLabdisc() { await this.labdisc.connect(); }
+  async disconnectLabdisc() { await this.labdisc.disconnect(); this._update(); }
+  async connectMicrobit() { await this.microbit.connect(); }
+  async disconnectMicrobit() { await this.microbit.disconnect(); this._update(); }
 
-  /** Disconnect from Labdisc */
-  async disconnectLabdisc() {
-    await this.labdisc.disconnect();
-    this._update();
-  }
-
-  /** Connect to micro:bit */
-  async connectMicrobit() {
-    await this.microbit.connect();
-  }
-
-  /** Disconnect from micro:bit */
-  async disconnectMicrobit() {
-    await this.microbit.disconnect();
-    this._update();
-  }
-
-  /** Set streaming mode */
   setMode(mode) {
     if (mode !== 'normal' && mode !== 'fast') return;
     this.mode = mode;
     this._update();
   }
 
-  /** Get summary of current state */
+  /** Manual start — works without micro:bit */
+  async manualStartStream() {
+    if (!this.labdisc.isConnected || this.labdisc.isStreaming) return;
+    this._autoStarted = false;
+    await this._startStreaming();
+  }
+
+  /** Manual stop */
+  async manualStopStream() {
+    if (!this.labdisc.isStreaming) return;
+    this._autoStarted = false;
+    await this.labdisc.stopStreaming();
+    this._update();
+  }
+
   getState() {
     return {
       labdisc: this.labdisc.state,
@@ -93,7 +75,7 @@ export class Bridge {
     };
   }
 
-  // ─── Private: wire Labdisc events ───
+  // ─── Private: wire events ───
 
   _wireLabdisc() {
     this.labdisc.onStateChange = (state) => {
@@ -107,18 +89,15 @@ export class Bridge {
       this._update();
     };
 
-    this.labdisc.onStatus = (status) => {
-      this._update();
-    };
+    this.labdisc.onStatus = () => this._update();
 
     this.labdisc.onData = (values, count) => {
-      // Update display values
       this.displayValues = formatForDisplay(values);
 
-      // If micro:bit is connected, send data
+      const line = formatForUART(values);
+      this.lastUartLine = line.trim();
+
       if (this.microbit.isConnected) {
-        const line = formatForUART(values);
-        this.lastUartLine = line.trim();
         this.microbit.send(line);
         this.uartSentCount++;
       }
@@ -126,12 +105,8 @@ export class Bridge {
       this._update();
     };
 
-    this.labdisc.onLog = (type, msg) => {
-      this._log(type, `[Labdisc] ${msg}`);
-    };
+    this.labdisc.onLog = (type, msg) => this._log(type, `[Labdisc] ${msg}`);
   }
-
-  // ─── Private: wire micro:bit events ───
 
   _wireMicrobit() {
     this.microbit.onStateChange = (state) => {
@@ -139,56 +114,42 @@ export class Bridge {
       this._checkAutoStream();
       this._update();
     };
-
-    this.microbit.onReceive = (text) => {
-      this._log('rx', `[micro:bit] ${text.trim()}`);
-    };
-
-    this.microbit.onLog = (type, msg) => {
-      this._log(type, `[BLE] ${msg}`);
-    };
+    this.microbit.onReceive = (text) => this._log('rx', `[micro:bit] ${text.trim()}`);
+    this.microbit.onLog = (type, msg) => this._log(type, `[BLE] ${msg}`);
   }
 
-  // ─── Private: auto-start/stop streaming ───
+  // ─── Auto-stream logic ───
 
-  /**
-   * Automatically start streaming when both devices are connected,
-   * and stop when micro:bit disconnects.
-   */
   _checkAutoStream() {
     const labReady = this.labdisc.state === ConnectionState.CONNECTED;
     const microReady = this.microbit.state === BleState.CONNECTED;
     const streaming = this.labdisc.isStreaming;
 
-    // Both connected and not yet streaming → start
+    // Both connected + not streaming → auto-start
     if (labReady && microReady && !streaming && this.labdisc.sensorIds.length > 0) {
-      this._log('info', 'Ambos dispositivos conectados — iniciando streaming');
+      this._log('info', 'Ambos conectados — auto-start streaming');
+      this._autoStarted = true;
       this._startStreaming();
     }
 
-    // micro:bit disconnected while streaming → stop
-    if (!microReady && streaming) {
-      this._log('info', 'micro:bit desconectada — deteniendo streaming');
+    // micro:bit lost + was auto-started → auto-stop (save battery)
+    // Manual streams are NOT stopped — user controls them
+    if (!microReady && streaming && this._autoStarted) {
+      this._log('info', 'micro:bit perdida — auto-stop streaming');
+      this._autoStarted = false;
       this.labdisc.stopStreaming();
     }
   }
 
-  async _startStreaming() {
+async _startStreaming() {
     if (this.mode === 'fast') {
-      await this.labdisc.startExperiment();
+      await this.labdisc.startFast();
     } else {
-      await this.labdisc.startOnline();
+      await this.labdisc.startNormal();
     }
     this.uartSentCount = 0;
   }
 
-  // ─── Private: helpers ───
-
-  _update() {
-    if (this.onUpdate) this.onUpdate();
-  }
-
-  _log(type, msg) {
-    if (this.onLog) this.onLog(type, msg);
-  }
+  _update() { if (this.onUpdate) this.onUpdate(); }
+  _log(type, msg) { if (this.onLog) this.onLog(type, msg); }
 }

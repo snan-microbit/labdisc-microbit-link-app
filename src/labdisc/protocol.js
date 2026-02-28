@@ -51,10 +51,11 @@ export const STATUS_SUB = Object.freeze({
   0x33: 'StopLoginACK',
 });
 
-/** Rate index → description */
+/** Rate index → frequency (confirmed by testing) */
 export const RATE_TABLE = Object.freeze({
-  0x02: { hz: 1,  label: '1 Hz (1 muestra/seg)' },
-  0x04: { hz: 25, label: '25 Hz (25 muestras/seg)' },
+  0x02: { hz: 1,  label: '1 Hz' },
+  0x03: { hz: 10, label: '10 Hz' },
+  0x04: { hz: 25, label: '25 Hz' },
 });
 
 /** Sample count index → count */
@@ -66,7 +67,6 @@ export const COUNT_TABLE = Object.freeze({
 
 /**
  * Sensors where raw value 0x8000 means "no data" (not a real measurement).
- * For other sensors, 0x8000 is a valid midpoint value.
  */
 export const NO_DATA_0x8000 = new Set([
   2, 4, 6, 14, 15, 16, 17, 21, 23, 25, 26, 30, 31, 40, 41, 42
@@ -74,20 +74,12 @@ export const NO_DATA_0x8000 = new Set([
 
 // ─── Checksum ───
 
-/**
- * Calculate two's complement checksum.
- * Sum of all bytes in the packet (including checksum) must be 0x00 mod 256.
- */
 export function calcChecksum(bytes) {
   let sum = 0;
   for (const b of bytes) sum += b;
   return (256 - (sum % 256)) % 256;
 }
 
-/**
- * Verify packet checksum.
- * @returns {boolean} true if valid
- */
 export function verifyChecksum(packet) {
   let sum = 0;
   for (const b of packet) sum += b;
@@ -96,18 +88,12 @@ export function verifyChecksum(packet) {
 
 // ─── Command builders ───
 
-/**
- * Build a simple command (header + code + checksum).
- */
 export function buildCommand(code) {
   const bytes = [...CMD_HEADER, code];
   bytes.push(calcChecksum(bytes));
   return new Uint8Array(bytes);
 }
 
-/**
- * Build a command with payload (header + code + payload + checksum).
- */
 export function buildCommandWithPayload(code, payload) {
   const bytes = [...CMD_HEADER, code, ...payload];
   bytes.push(calcChecksum(bytes));
@@ -118,15 +104,13 @@ export function buildCommandWithPayload(code, payload) {
  * Build StartExperiment command (0x11).
  * @param {number} maskHi - High byte of sensor mask
  * @param {number} maskLo - Low byte of sensor mask
- * @param {number} rateIdx - Rate index (0x02=1Hz, 0x04=25Hz)
+ * @param {number} rateIdx - Rate index (0x02=1Hz, 0x03=10Hz, 0x04=25Hz)
  * @param {number} countIdx - Sample count index (0x00=10, 0x01=100, 0x03=10000)
  */
 export function buildStartExperiment(maskHi, maskLo, rateIdx, countIdx) {
   const payload = [maskHi, maskLo, rateIdx, countIdx, 0, 0, 0, 0, 0, 0, 0, 0, 0];
   return buildCommandWithPayload(CMD.START_EXPERIMENT, payload);
 }
-
-// ─── Utilities ───
 
 /** Format bytes as hex string for logging */
 export function fmtHex(bytes) {
