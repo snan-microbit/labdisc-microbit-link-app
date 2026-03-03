@@ -93,7 +93,7 @@ function renderState() {
   // Streaming status
   const streaming = s.labdisc === ConnectionState.STREAMING;
   const streamLabel = streaming
-    ? `${s.mode === 'fast' ? '25 Hz' : '1 Hz'} · ${s.packetCount} pkt${s.uartSentCount > 0 ? ' · → ' + s.uartSentCount + ' uart' : ''}`
+    ? `${s.mode === 'fast' ? '10 Hz' : '1 Hz'} · ${s.packetCount} pkt${s.uartSentCount > 0 ? ' · → ' + s.uartSentCount + ' uart' : ''}`
     : 'Idle';
   $('streamStatus').textContent = streamLabel;
   $('streamStatus').className = `stream-status ${streaming ? 'active' : ''}`;
