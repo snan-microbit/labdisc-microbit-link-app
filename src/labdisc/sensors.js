@@ -155,3 +155,5 @@ export const UART_ORDER = [
   { id: 7,  name: 'GPS Vel',     factor: 10,     unit: 'km/h', gpsField: 'vel' },
   { id: 7,  name: 'GPS Ángulo',  factor: 10,     unit: '°',    gpsField: 'ang' },
 ];
+
+export const NO_DATA_VALUE = -9999;
