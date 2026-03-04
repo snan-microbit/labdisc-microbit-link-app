@@ -5,8 +5,9 @@
  *
  * Protocol rules (confirmed by sniffing GlobiLab X, March 2026):
  *
- * 1. All commands sent TRIPLICATED (~400ms apart). GlobiLab X sends
- *    every command 3 times. The Labdisc responds with 1-2 ACKs.
+ * 1. Handshake commands (GetSensorIDs, GetSensorStatus) sent DUPLICATED
+ *    with minimal gap (~50ms). Config (0x11) and Start (0x22) sent
+ *    TRIPLICATED (~400ms apart). Labdisc responds with 1-2 ACKs.
  *
  * 2. Config (0x11) and Start (0x22) are SEPARATE operations.
  *    GlobiLab X sends 0x11 when the user changes a sensor in the UI.
@@ -41,13 +42,19 @@ export const ConnectionState = Object.freeze({
 });
 
 /**
- * Mutually exclusive sensor pairs.
- * When building masks, we keep the FIRST of each pair and exclude the second.
- * (GlobiLab X removes Voltaje when Corriente is added, and Micrófono when Sonido is added.)
+ * Mutually exclusive sensor pairs (hardware limitation).
+ * When both are in the mask, the Labdisc rejects one unpredictably.
+ * We pre-filter to keep the more useful sensor.
+ *
+ * Confirmed pairs:
+ * - Voltaje(27) / Corriente(28) — GlobiLab X drops Voltaje
+ * - Sonido(21) / Micrófono(33) — GlobiLab X drops Micrófono
+ * - Luz(20) / Ext Analog(32) — Labdisc alternates which it drops
  */
 const EXCLUSIVE_PAIRS = [
   { keep: 28, drop: 27 },  // Keep Corriente, drop Voltaje
   { keep: 21, drop: 33 },  // Keep Sonido, drop Micrófono
+  { keep: 20, drop: 32 },  // Keep Luz, drop Ext Analog
 ];
 
 export class LabdiscConnection {
@@ -106,10 +113,12 @@ export class LabdiscConnection {
   /**
    * Connect to the Labdisc and read its current state.
    *
-   * Sequence (matches GlobiLab X):
-   * 1. GetSensorIDs (x3) — learn what sensors exist
-   * 2. StopLogin (x3) — clear any residual streaming
-   * 3. GetSensorStatus (x3) — read stored config
+   * Sequence (matches GlobiLab X sniffer capture):
+   * 1. GetSensorIDs (x2, ~50ms apart) — learn what sensors exist
+   * 2. GetSensorStatus (x2, ~50ms apart) — read stored config
+   *
+   * GlobiLab X does NOT send StopLogin on connect.
+   * Total: ~3 pitidos (vs 9 we had before).
    */
   async connect() {
     if (this.isConnected) return;
@@ -126,17 +135,13 @@ export class LabdiscConnection {
 
       this._readLoop();
 
-      // Step 1: Get sensor IDs
+      // Step 1: Get sensor IDs (duplicated, short gap — like GlobiLab X)
       await this._sleep(300);
-      await this._sendTriplicated(CMD.GET_SENSOR_IDS, 'GetSensorIDs');
-      await this._sleep(500);
+      await this._sendDuplicated(CMD.GET_SENSOR_IDS, 'GetSensorIDs');
 
-      // Step 2: Stop any running experiment (from previous session)
-      await this._sendTriplicated(CMD.STOP_LOGIN, 'StopLogin (limpiar estado)');
-      await this._sleep(500);
-
-      // Step 3: Get current status
-      await this._sendTriplicated(CMD.GET_SENSOR_STATUS, 'GetSensorStatus');
+      // Step 2: Get current status (duplicated, short gap)
+      await this._sleep(800);
+      await this._sendDuplicated(CMD.GET_SENSOR_STATUS, 'GetSensorStatus');
 
     } catch (e) {
       if (e.name !== 'NotFoundError') this._log('err', 'Conexion: ' + e.message);
@@ -150,7 +155,7 @@ export class LabdiscConnection {
 
     try {
       if (this.isStreaming) {
-        await this._sendTriplicated(CMD.STOP_LOGIN, 'StopLogin');
+        await this._sendDuplicated(CMD.STOP_LOGIN, 'StopLogin');
         await this._sleep(200);
       }
     } catch (e) { /* ignore */ }
@@ -241,7 +246,7 @@ export class LabdiscConnection {
   async stopStreaming() {
     if (!this.isStreaming) return;
     this._userStopped = true;
-    await this._sendTriplicated(CMD.STOP_LOGIN, 'StopLogin');
+    await this._sendDuplicated(CMD.STOP_LOGIN, 'StopLogin');
     this._setState(ConnectionState.CONNECTED);
     this._log('info', 'Streaming detenido por usuario');
   }
@@ -289,92 +294,102 @@ export class LabdiscConnection {
   // ─── Private: incremental configuration ───
 
   /**
-   * Configure the Labdisc incrementally to avoid the Pressure bug.
+   * Configure the Labdisc.
    *
-   * Strategy (confirmed by GlobiLab X sniffing):
-   * 1. If Presión (bit 0) is in the mask:
-   *    a. First send 0x11 WITHOUT Presión, with rate+count → Labdisc accepts
-   *    b. Then send 0x11 WITH Presión added → Labdisc accepts (rate/count already settled)
-   * 2. If Presión is NOT in the mask:
-   *    Just send one 0x11 directly.
-   *
-   * Each 0x11 is sent triplicated with ~400ms between sends.
+   * With correct exclusive pairs pre-filtered, the Labdisc should
+   * accept the mask on the first try. Presión is still added in a
+   * separate step to avoid the rate/count reset bug.
    */
   async _configureIncremental(ids, targetMask, rateIdx, countIdx) {
-    // Check if Presión (sensor ID 26, always bit 0 in GenSci) is in the target mask
     var presionBitIdx = ids.indexOf(26);
     var hasPresion = presionBitIdx !== -1 && ((targetMask >> presionBitIdx) & 1);
 
-    if (hasPresion && this._countBits(targetMask) > 1) {
-      // Step 1: Configure WITHOUT Presión first
-      var maskWithoutPresion = targetMask & ~(1 << presionBitIdx);
-      this._log('info', 'Paso 1: Config sin Presion (mask=0x' + maskWithoutPresion.toString(16) + ')');
-      await this._sendConfig(maskWithoutPresion, rateIdx, countIdx);
-      await this._sleep(800);
+    // Step 1: Configure without Presión (to set rate/count safely)
+    var maskStep1 = hasPresion ? (targetMask & ~(1 << presionBitIdx)) : targetMask;
 
-      // Step 2: Add Presión
-      this._log('info', 'Paso 2: Agregando Presion (mask=0x' + targetMask.toString(16) + ')');
-      await this._sendConfig(targetMask, rateIdx, countIdx);
-    } else {
-      // No Presión or only Presión — send directly
-      await this._sendConfig(targetMask, rateIdx, countIdx);
+    if (this._countBits(maskStep1) > 0) {
+      this._log('info', 'Config sensores (mask=0x' + maskStep1.toString(16) + ')');
+      var ack1 = await this._sendConfigOnce(maskStep1, rateIdx, countIdx);
+      this._logConfigResult(maskStep1, rateIdx, countIdx, ack1);
+    }
+
+    // Step 2: Add Presión (rate/count already settled)
+    if (hasPresion) {
+      await this._sleep(500);
+      this._log('info', 'Config +Presión (mask=0x' + targetMask.toString(16) + ')');
+      var ack2 = await this._sendConfigOnce(targetMask, rateIdx, countIdx);
+      this._logConfigResult(targetMask, rateIdx, countIdx, ack2);
     }
   }
 
   /**
-   * Send a single 0x11 config command (triplicated).
-   * Waits for ACK and validates the response mask.
+   * Log the result of a config attempt.
    */
-  async _sendConfig(mask, rateIdx, countIdx) {
+  _logConfigResult(mask, rateIdx, countIdx, ack) {
+    if (!ack) {
+      this._log('warn', 'Config sin respuesta');
+      return;
+    }
+    if (ack.rateIdx !== rateIdx || ack.countIdx !== countIdx) {
+      this._log('warn', 'Rate/count modificado: rate=0x' + ack.rateIdx.toString(16) +
+        ' count=0x' + ack.countIdx.toString(16));
+    }
+    if (ack.sensorMask !== mask) {
+      var ids = this.parser.sensorIds;
+      var diff = mask ^ ack.sensorMask;
+      var rejected = ids.filter(function(_, i) { return (diff >> i) & 1; });
+      var names = rejected.map(function(id) {
+        var s = SENSORS[id]; return s ? s.name : '?' + id;
+      }).join(', ');
+      this._log('warn', 'Mascara: 0x' + mask.toString(16) +
+        ' -> 0x' + ack.sensorMask.toString(16) + ' (' + names + ')');
+    } else {
+      this._log('info', 'Config aceptada: mask=0x' + ack.sensorMask.toString(16) +
+        ' rate=0x' + ack.rateIdx.toString(16) + ' count=0x' + ack.countIdx.toString(16));
+    }
+  }
+
+  /**
+   * Send a single 0x11 config (triplicated), return the best ACK.
+   *
+   * CRITICAL TIMING: GlobiLab X sends all 3 copies back-to-back
+   * WITHOUT waiting between them. The Labdisc treats the burst as
+   * one logical command and pits only once. If we add delays between
+   * sends, each one is treated as a separate command → 3 pits.
+   */
+  async _sendConfigOnce(mask, rateIdx, countIdx) {
     var maskHi = (mask >> 8) & 0xFF;
     var maskLo = mask & 0xFF;
     var pkt = buildStartExperiment(maskHi, maskLo, rateIdx, countIdx);
 
-    // Send triplicated (~400ms apart, like GlobiLab X)
+    // Send all 3 back-to-back (no sleep!) — like GlobiLab X
     await this._sendRaw(pkt, 'StartExperiment mask=0x' + mask.toString(16));
-    await this._sleep(400);
     await this._sendRaw(pkt, 'StartExperiment mask=0x' + mask.toString(16) + ' [dup]');
-    await this._sleep(400);
     await this._sendRaw(pkt, 'StartExperiment mask=0x' + mask.toString(16) + ' [trip]');
 
-    // Wait for ACK
-    var ack = await this._waitForStatus(2000);
-    if (ack) {
-      if (ack.rateIdx !== rateIdx || ack.countIdx !== countIdx) {
-        this._log('warn', 'Rate/count modificado! rate=0x' + ack.rateIdx.toString(16) +
-          ' count=0x' + ack.countIdx.toString(16) + ' (esperado rate=0x' +
-          rateIdx.toString(16) + ' count=0x' + countIdx.toString(16) + ')');
-      }
-      if (ack.sensorMask !== mask) {
-        var ids = this.parser.sensorIds;
-        var diff = mask ^ ack.sensorMask;
-        var rejected = ids.filter(function(_, i) { return (diff >> i) & 1; });
-        var names = rejected.map(function(id) {
-          var s = SENSORS[id]; return s ? s.name : '?' + id;
-        }).join(', ');
-        this._log('warn', 'Mascara ajustada: 0x' + mask.toString(16) +
-          ' -> 0x' + ack.sensorMask.toString(16) + ' (' + names + ')');
-      } else {
-        this._log('info', 'Config aceptada: mask=0x' + ack.sensorMask.toString(16) +
-          ' rate=0x' + ack.rateIdx.toString(16) + ' count=0x' + ack.countIdx.toString(16));
+    // Now wait for ACKs (Labdisc responds with 1-2)
+    var bestAck = null;
+    for (var i = 0; i < 3; i++) {
+      var ack = await this._waitForStatus(1000);
+      if (!ack) break;
+      // Prefer the ACK whose mask matches our request
+      if (!bestAck || ack.sensorMask === mask) {
+        bestAck = ack;
       }
     }
 
-    // Drain remaining ACKs (from triplicated sends)
-    await this._waitForStatus(500);
-    await this._waitForStatus(300);
+    return bestAck;
   }
 
   // ─── Private: streaming ───
 
   /**
    * Send 0x22 triplicated to start streaming.
+   * All 3 sent back-to-back (no delay) → 1 pit.
    */
   async _startStreaming() {
     await this.sendCommand(CMD.START_LOGIN, 'StartLogin');
-    await this._sleep(400);
     await this.sendCommand(CMD.START_LOGIN, 'StartLogin [dup]');
-    await this._sleep(400);
     await this.sendCommand(CMD.START_LOGIN, 'StartLogin [trip]');
 
     var started = await this._waitForActiveStatus(3000);
@@ -388,14 +403,23 @@ export class LabdiscConnection {
   }
 
   /**
-   * Send a command triplicated (~400ms apart) like GlobiLab X.
+   * Send a command triplicated back-to-back (no delay between sends).
+   * The Labdisc treats the burst as one command → 1 pit.
    */
   async _sendTriplicated(code, name) {
     await this.sendCommand(code, name);
-    await this._sleep(400);
     await this.sendCommand(code, name + ' [dup]');
-    await this._sleep(400);
     await this.sendCommand(code, name + ' [trip]');
+  }
+
+  /**
+   * Send a command duplicated (~50ms apart) — for handshake commands.
+   * GlobiLab X sends GetSensorIDs and GetSensorStatus this way.
+   */
+  async _sendDuplicated(code, name) {
+    await this.sendCommand(code, name);
+    await this._sleep(50);
+    await this.sendCommand(code, name + ' [dup]');
   }
 
   // ─── Private: experiment end ───
