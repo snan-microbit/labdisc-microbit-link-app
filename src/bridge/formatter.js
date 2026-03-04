@@ -11,6 +11,10 @@
  * 
  * GPS entries use 'gpsField' property to extract lat/lon/vel/ang from
  * the GPS data object (values[7]).
+ * 
+ * ACTUALIZACIÓN 04/03/2026:
+ * - "—" cambiado a "n/c" para sensores sin dato (más claro para el usuario)
+ * - GPS vel/ang ahora disponibles en 0x81 (GPS es 12 bytes, no 8)
  */
 
 import { SENSORS, UART_ORDER, NO_DATA_VALUE } from '../labdisc/sensors.js';
@@ -74,7 +78,7 @@ export function formatForDisplay(values) {
         result.push({
           id: entry.id,
           name: entry.name,
-          value: '—',
+          value: 'n/c',
           unit: entry.unit || '',
           hasData: false,
         });
@@ -100,7 +104,7 @@ export function formatForDisplay(values) {
       result.push({
         id: entry.id,
         name: entry.name || sensor.name,
-        value: '—',
+        value: 'n/c',
         unit: entry.unit || sensor.unit,
         hasData: false,
       });

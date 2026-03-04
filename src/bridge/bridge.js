@@ -1,10 +1,14 @@
 /**
  * bridge.js — Data bridge orchestrator
  * 
+ * v4.0 — Polling architecture
+ * 
  * Coordinates the flow: Labdisc → decode → convert → format → micro:bit
  * 
+ * Uses 0x55 polling (not 0x11/0x22 streaming). Frequency configurable 1-25Hz.
+ * 
  * Auto-stream rules:
- * - Both devices connected → auto-start streaming
+ * - Both devices connected → auto-start polling at current hz
  * - micro:bit disconnects during auto-stream → auto-stop
  * - Manual stream (button) → works without micro:bit, no auto-stop
  */
@@ -21,7 +25,6 @@ export class Bridge {
     this.displayValues = [];
     this.lastUartLine = '';
     this.uartSentCount = 0;
-    this.mode = 'normal'; // 'normal' (0x81, 1Hz) or 'fast' (0x84, 25Hz)
 
     /** true if streaming was started by auto-stream (not manual button) */
     this._autoStarted = false;
@@ -40,9 +43,12 @@ export class Bridge {
   async connectMicrobit() { await this.microbit.connect(); }
   async disconnectMicrobit() { await this.microbit.disconnect(); this._update(); }
 
-  setMode(mode) {
-    if (mode !== 'normal' && mode !== 'fast') return;
-    this.mode = mode;
+  /**
+   * Set polling frequency.
+   * @param {number} hz - Frequency in Hz (1-25 recommended)
+   */
+  setHz(hz) {
+    this.labdisc.setHz(hz);
     this._update();
   }
 
@@ -50,14 +56,16 @@ export class Bridge {
   async manualStartStream() {
     if (!this.labdisc.isConnected || this.labdisc.isStreaming) return;
     this._autoStarted = false;
-    await this._startStreaming();
+    this.labdisc.startPolling();
+    this.uartSentCount = 0;
+    this._update();
   }
 
   /** Manual stop */
   async manualStopStream() {
     if (!this.labdisc.isStreaming) return;
     this._autoStarted = false;
-    await this.labdisc.stopStreaming();
+    this.labdisc.stopPolling();
     this._update();
   }
 
@@ -65,13 +73,14 @@ export class Bridge {
     return {
       labdisc: this.labdisc.state,
       microbit: this.microbit.state,
-      mode: this.mode,
+      pollHz: this.labdisc.pollHz,
       sensorIds: this.labdisc.sensorIds,
       deviceStatus: this.labdisc.deviceStatus,
       displayValues: this.displayValues,
       lastUartLine: this.lastUartLine,
       uartSentCount: this.uartSentCount,
       packetCount: this.labdisc.parser.packetCount,
+      pollSentCount: this.labdisc._pollSentCount,
     };
   }
 
@@ -127,27 +136,18 @@ export class Bridge {
 
     // Both connected + not streaming → auto-start
     if (labReady && microReady && !streaming && this.labdisc.sensorIds.length > 0) {
-      this._log('info', 'Ambos conectados — auto-start streaming');
+      this._log('info', 'Ambos conectados — auto-start polling');
       this._autoStarted = true;
-      this._startStreaming();
+      this.labdisc.startPolling();
+      this.uartSentCount = 0;
     }
 
-    // micro:bit lost + was auto-started → auto-stop (save battery)
-    // Manual streams are NOT stopped — user controls them
+    // micro:bit lost + was auto-started → auto-stop
     if (!microReady && streaming && this._autoStarted) {
-      this._log('info', 'micro:bit perdida — auto-stop streaming');
+      this._log('info', 'micro:bit perdida — auto-stop polling');
       this._autoStarted = false;
-      this.labdisc.stopStreaming();
+      this.labdisc.stopPolling();
     }
-  }
-
-async _startStreaming() {
-    if (this.mode === 'fast') {
-      await this.labdisc.startFast();
-    } else {
-      await this.labdisc.startNormal();
-    }
-    this.uartSentCount = 0;
   }
 
   _update() { if (this.onUpdate) this.onUpdate(); }

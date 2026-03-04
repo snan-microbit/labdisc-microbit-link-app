@@ -1,6 +1,8 @@
 /**
  * app.js — UI controller
  * 
+ * v4.0 — Polling architecture
+ * 
  * Wires the Bridge module to DOM elements.
  * Exposes `window.bridge` for console debugging.
  */
@@ -19,10 +21,7 @@ const bridge = new Bridge();
 const logger = new Logger($('logBody'));
 logger.counterEl = $('logCount');
 
-// Expose for console debugging:
-//   bridge.labdisc.startOnline()
-//   bridge.labdisc.startExperiment()
-//   bridge.labdisc.stopStreaming()
+// Expose for console debugging
 window.bridge = bridge;
 
 // ─── Wire bridge to UI ───
@@ -48,8 +47,8 @@ window.handleMicrobit = async () => {
   }
 };
 
-window.handleMode = (value) => {
-  bridge.setMode(value);
+window.handleHz = (value) => {
+  bridge.setHz(parseFloat(value));
 };
 
 window.handleManualStream = async () => {
@@ -93,7 +92,7 @@ function renderState() {
   // Streaming status
   const streaming = s.labdisc === ConnectionState.STREAMING;
   const streamLabel = streaming
-    ? `${s.mode === 'fast' ? '10 Hz' : '1 Hz'} · ${s.packetCount} pkt${s.uartSentCount > 0 ? ' · → ' + s.uartSentCount + ' uart' : ''}`
+    ? `${s.pollHz} Hz · ${s.packetCount} pkt${s.uartSentCount > 0 ? ' · → ' + s.uartSentCount + ' uart' : ''}`
     : 'Idle';
   $('streamStatus').textContent = streamLabel;
   $('streamStatus').className = `stream-status ${streaming ? 'active' : ''}`;
