@@ -100,14 +100,15 @@ export class Bridge {
 
     this.labdisc.onStatus = () => this._update();
 
-    this.labdisc.onData = (values, count) => {
+    this.labdisc.onData = async (values, count) => {
       this.displayValues = formatForDisplay(values);
 
-      const line = formatForUART(values);
-      this.lastUartLine = line.trim();
+      const lines = formatForUART(values);
+      this.lastUartLine = lines[0].trim() + ' | ' + lines[1].trim();
 
       if (this.microbit.isConnected) {
-        this.microbit.send(line);
+        await this.microbit.send(lines[0]);
+        await this.microbit.send(lines[1]);
         this.uartSentCount++;
       }
 

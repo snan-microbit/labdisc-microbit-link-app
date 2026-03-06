@@ -126,7 +126,7 @@ export class MicrobitBLE {
     const data = encoder.encode(text);
 
     // Fragment into 20-byte chunks (BLE MTU)
-    const chunkSize = 10;
+    const chunkSize = 20;
     for (let i = 0; i < data.length; i += chunkSize) {
       const chunk = data.slice(i, i + chunkSize);
       try {

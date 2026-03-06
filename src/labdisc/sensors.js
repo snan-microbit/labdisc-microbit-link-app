@@ -136,7 +136,14 @@ export function buildMaskForRate(sensorIds, targetHz) {
 
 // ─── Standardized order for UART transmission ───
 
-export const UART_ORDER = [
+/**
+ * UART transmission split into two lines (A and B) to stay under
+ * the micro:bit BLE UART buffer limit of ~62 bytes per line.
+ * 
+ * Line A: Environmental sensors (8 fields, ~45 bytes max)
+ * Line B: Electrical + GPS sensors (8 fields, ~50 bytes max)
+ */
+export const UART_ORDER_A = [
   { id: 30, name: 'Temp Amb',    factor: 10,     unit: '°C' },
   { id: 6,  name: 'Humedad',     factor: 10,     unit: '%' },
   { id: 20, name: 'Luz',         factor: 1,      unit: 'lux' },
@@ -145,11 +152,13 @@ export const UART_ORDER = [
   { id: 25, name: 'Distancia',   factor: 1000,   unit: 'm' },
   { id: 21, name: 'Sonido',      factor: 10,     unit: 'dB' },
   { id: 13, name: 'Temp Ext',    factor: 10,     unit: '°C' },
+];
+
+export const UART_ORDER_B = [
   { id: 27, name: 'Voltaje',     factor: 1000,   unit: 'V' },
   { id: 28, name: 'Corriente',   factor: 1000,   unit: 'A' },
   { id: 33, name: 'Micrófono',   factor: 1000,   unit: 'V' },
   { id: 32, name: 'Ext Analog',  factor: 1000,   unit: 'V' },
-  // GPS sub-fields — all reference values[7] but extract different fields
   { id: 7,  name: 'GPS Lat',     factor: 100000, unit: '°',    gpsField: 'lat' },
   { id: 7,  name: 'GPS Lon',     factor: 100000, unit: '°',    gpsField: 'lon' },
   { id: 7,  name: 'GPS Vel',     factor: 10,     unit: 'km/h', gpsField: 'vel' },

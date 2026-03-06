@@ -1,40 +1,42 @@
 /**
  * formatter.js — Data formatter for UART transmission
  * 
- * Converts parsed Labdisc sensor values into the standardized CSV format
- * that the micro:bit extension expects.
+ * v4.0 — Split into two lines for BLE UART limit
  * 
- * Format: "278,541,3,1020,0,0,723,0,0,0,0,0,-3477470,-5582070,0,1615\n"
- * - Values are integers (×10, ×100, ×1000, or ×100000 depending on sensor)
- * - Fixed order (same regardless of Labdisc model)
- * - -9999 = sensor not available or no data
+ * The micro:bit BLE UART buffer is ~62 bytes. Our full 16-field CSV
+ * can reach ~80 bytes, which overflows and crashes the micro:bit.
  * 
- * GPS entries use 'gpsField' property to extract lat/lon/vel/ang from
- * the GPS data object (values[7]).
+ * Solution: split into two lines prefixed with A, and B,:
+ *   Line A (8 fields): "A,274,655,2,1013,-9999,-9999,560,-9999\n"  (~45 bytes max)
+ *   Line B (8 fields): "B,5,0,-9999,-9999,-347746,-558208,0,161\n" (~50 bytes max)
  * 
- * ACTUALIZACIÓN 04/03/2026:
- * - "—" cambiado a "n/c" para sensores sin dato (más claro para el usuario)
- * - GPS vel/ang ahora disponibles en 0x81 (GPS es 12 bytes, no 8)
+ * The micro:bit receives both lines and reconstructs the full dataset.
+ * The prefix A/B tells it which half it's receiving.
+ * 
+ * GPS precision reduced from ÷100000 to ÷10000 (4 decimals, ~11m accuracy)
+ * to keep line B under 62 bytes in worst case.
  */
 
-import { SENSORS, UART_ORDER, NO_DATA_VALUE } from '../labdisc/sensors.js';
+import { SENSORS, UART_ORDER_A, UART_ORDER_B, NO_DATA_VALUE } from '../labdisc/sensors.js';
 
 /**
- * Format sensor values into a UART CSV line.
+ * Format sensor values into two UART CSV lines.
  * 
  * @param {Object} values - Parsed sensor values from LabdiscParser.onData
- *   Keys are sensor IDs (numbers), values are { raw, value, noData } objects.
- *   GPS (id 7) has { lat, lon, vel, ang } with .decimal on lat/lon.
- * @returns {string} CSV line like "278,541,3,...\n"
+ * @returns {string[]} Array of two lines: ["A,...\n", "B,...\n"]
  */
 export function formatForUART(values) {
-  var parts = [];
+  var lineA = 'A,' + _formatFields(values, UART_ORDER_A).join(',') + '\n';
+  var lineB = 'B,' + _formatFields(values, UART_ORDER_B).join(',') + '\n';
+  return [lineA, lineB];
+}
 
-  for (var i = 0; i < UART_ORDER.length; i++) {
-    var entry = UART_ORDER[i];
+function _formatFields(values, order) {
+  var parts = [];
+  for (var i = 0; i < order.length; i++) {
+    var entry = order[i];
     var data = values[entry.id];
 
-    // GPS sub-fields: extract from the GPS data object
     if (entry.gpsField) {
       var gpsValue = _extractGPSField(data, entry.gpsField);
       if (gpsValue === null) {
@@ -45,76 +47,59 @@ export function formatForUART(values) {
       continue;
     }
 
-    // Normal sensors
     if (!data || data.noData || data.value === null || data.value === undefined) {
       parts.push(NO_DATA_VALUE);
     } else {
       parts.push(Math.round(data.value * entry.factor));
     }
   }
-
-  return parts.join(',') + '\n';
+  return parts;
 }
 
 /**
  * Format sensor values for human-readable debug display.
- * 
- * @param {Object} values - Parsed sensor values
- * @returns {Object[]} Array of { id, name, value, unit, hasData } for display
+ * (Unchanged — uses full UART_ORDER for display)
  */
 export function formatForDisplay(values) {
+  var allOrder = UART_ORDER_A.concat(UART_ORDER_B);
   var result = [];
 
-  for (var i = 0; i < UART_ORDER.length; i++) {
-    var entry = UART_ORDER[i];
+  for (var i = 0; i < allOrder.length; i++) {
+    var entry = allOrder[i];
     var sensor = SENSORS[entry.id];
 
-    // GPS sub-fields
     if (entry.gpsField) {
       var data = values[entry.id];
       var gpsValue = _extractGPSField(data, entry.gpsField);
 
       if (gpsValue === null) {
         result.push({
-          id: entry.id,
-          name: entry.name,
-          value: 'n/c',
-          unit: entry.unit || '',
-          hasData: false,
+          id: entry.id, name: entry.name, value: 'n/c',
+          unit: entry.unit || '', hasData: false,
         });
       } else {
-        // Lat/Lon show 5 decimals, Vel/Ang show 1
         var decimals = (entry.gpsField === 'lat' || entry.gpsField === 'lon') ? 5 : 1;
         result.push({
-          id: entry.id,
-          name: entry.name,
-          value: gpsValue.toFixed(decimals),
-          unit: entry.unit || '',
-          hasData: true,
+          id: entry.id, name: entry.name, value: gpsValue.toFixed(decimals),
+          unit: entry.unit || '', hasData: true,
         });
       }
       continue;
     }
 
-    // Normal sensors
     var data = values[entry.id];
     if (!sensor) continue;
 
     if (!data || data.noData || data.value === null) {
       result.push({
-        id: entry.id,
-        name: entry.name || sensor.name,
-        value: 'n/c',
-        unit: entry.unit || sensor.unit,
-        hasData: false,
+        id: entry.id, name: entry.name || sensor.name, value: 'n/c',
+        unit: entry.unit || sensor.unit, hasData: false,
       });
     } else {
       result.push({
-        id: entry.id,
-        name: entry.name || sensor.name,
+        id: entry.id, name: entry.name || sensor.name,
         value: data.value.toFixed(sensor.dec),
-        unit: entry.unit || sensor.unit,
-        hasData: true,
+        unit: entry.unit || sensor.unit, hasData: true,
       });
     }
   }
@@ -122,24 +107,11 @@ export function formatForDisplay(values) {
   return result;
 }
 
-/**
- * Extract a GPS sub-field from the GPS data object.
- * 
- * The parser stores GPS data as:
- *   values[7] = { raw, value, noData, lat, lon, vel?, ang? }
- * where lat/lon are objects with { decimal, dms }.
- * 
- * @param {Object|undefined} gpsData - values[7] from parser
- * @param {string} field - 'lat', 'lon', 'vel', or 'ang'
- * @returns {number|null} The numeric value, or null if no data
- */
 function _extractGPSField(gpsData, field) {
   if (!gpsData || gpsData.noData) return null;
 
   if (field === 'lat') {
-    // lat is { decimal, dms } from decodeGPSCoord
     if (gpsData.lat && typeof gpsData.lat.decimal === 'number' && isFinite(gpsData.lat.decimal)) {
-      // Check for "zero" GPS (no fix) — both bytes 0x00
       if (gpsData.lat.decimal === 0 && gpsData.lon && gpsData.lon.decimal === 0) return null;
       return gpsData.lat.decimal;
     }
