@@ -8,6 +8,9 @@
 <meta name="theme-color" content="#1A9E8F">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔬</text></svg>">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
@@ -609,24 +612,65 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   RESPONSIVE
-   En pantallas chicas el diagrama se vuelve vertical
+   RESPONSIVE — Diagrama horizontal compacto en móvil
+   
+   En vez de pasar a vertical (que queda descentrado), achicamos
+   todo proporcionalmente para que entre en pantallas de ~360px.
    ═══════════════════════════════════════════════════════════ */
 @media (max-width: 580px) {
-  .diagram-row {
-    flex-direction: column;
-    gap: 0;
+  .app {
+    padding: 16px 10px 32px;
   }
 
-  .connection-bridge {
-    transform: rotate(90deg);
-    min-width: 100px;
-    max-width: 100px;
-    margin: -4px 0;
+  .connection-diagram {
+    padding: 20px 10px 20px;
   }
 
+  /* Nodos más chicos */
   .device-node {
-    min-width: auto;
+    min-width: 56px;
+  }
+
+  .device-icon {
+    width: 48px;
+    height: 48px;
+  }
+  .device-icon svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .device-name {
+    font-size: 10px;
+  }
+
+  .device-detail {
+    font-size: 8px;
+    max-width: 70px;
+  }
+
+  /* Puentes más angostos */
+  .connection-bridge {
+    min-width: 50px;
+    gap: 4px;
+    padding: 0 2px;
+  }
+
+  .bridge-line {
+    height: 20px;
+  }
+
+  .btn-sm {
+    padding: 4px 10px;
+    font-size: 10px;
+    border-radius: 5px;
+  }
+
+  /* Status bar */
+  .status-bar {
+    padding: 8px 12px;
+    font-size: 12px;
+    gap: 8px;
   }
 
   .sensor-grid {
@@ -812,5 +856,20 @@ body {
 </div>
 
 <script type="module" src="src/ui/app.js"></script>
+
+<!-- Registro del Service Worker — necesario para que Chrome ofrezca instalar la PWA -->
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('./sw.js')
+      .then(function(reg) {
+        console.log('[PWA] Service Worker registrado:', reg.scope);
+      })
+      .catch(function(err) {
+        console.log('[PWA] Service Worker error:', err);
+      });
+  });
+}
+</script>
 </body>
 </html>
