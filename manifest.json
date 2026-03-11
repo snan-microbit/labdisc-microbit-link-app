@@ -1,6 +1,6 @@
 {
-  "name": "Labdisc Bridge",
-  "short_name": "Labdisc",
+  "name": "micro:bit - Labdisc - Link",
+  "short_name": "mb:lab link",
   "description": "Puente Labdisc ↔ micro:bit para MakeCode",
   "start_url": "./index.html",
   "scope": "./",

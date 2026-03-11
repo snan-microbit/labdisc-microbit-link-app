@@ -20,7 +20,7 @@
 
 // Cambiá este string cada vez que actualices archivos para forzar
 // que el SW baje las versiones nuevas.
-const CACHE_VERSION = 'labdisc-bridge-v2.0';
+const CACHE_VERSION = 'microbit-labdisc-link-v2.0';
 
 // Archivos que forman el "app shell" — todo lo necesario para que
 // la interfaz cargue sin red. Estos se descargan en el evento install.
@@ -30,7 +30,6 @@ const APP_SHELL = [
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
-  './icon-512-maskable.png',
   './src/ui/app.js',
   './src/ui/logger.js',
   './src/bridge/bridge.js',
