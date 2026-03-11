@@ -90,10 +90,7 @@ body {
 .header-icon {
   width: 40px; height: 40px;
   border-radius: var(--radius-sm);
-  background: var(--ceibal-light);
-  border: 1px solid rgba(26,158,143,0.2);
-  display: grid; place-items: center;
-  font-size: 20px;
+  object-fit: cover;
 }
 
 .header h1 {
@@ -685,7 +682,7 @@ body {
 
   <!-- ════════ HEADER ════════ -->
   <div class="header">
-    <div class="header-icon">🔬</div>
+    <img class="header-icon" src="icon-192.png" alt="micro:bit Labdisc Link">
     <div>
       <h1>micro:bit · Labdisc · <em>Link</em></h1>
       <div class="header-sub">Puente Labdisc ↔ micro:bit</div>
