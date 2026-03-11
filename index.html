@@ -612,123 +612,65 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   RESPONSIVE — Layout vertical en móvil
+   RESPONSIVE — Diagrama horizontal compacto en móvil
    
-   En pantallas angostas el diagrama pasa de horizontal a vertical:
-   los nodos se apilan y los puentes se redimensionan con flechas
-   que apuntan hacia abajo (↓↑) en vez de izquierda/derecha (←→).
-   
-   No usamos rotate() porque eso no cambia el espacio en el layout
-   y causa recortes. En cambio redefinimos la geometría del puente.
+   En vez de pasar a vertical (que queda descentrado), achicamos
+   todo proporcionalmente para que entre en pantallas de ~360px.
    ═══════════════════════════════════════════════════════════ */
 @media (max-width: 580px) {
   .app {
-    padding: 16px 12px 32px;
+    padding: 16px 10px 32px;
   }
 
   .connection-diagram {
-    padding: 20px 16px 24px;
+    padding: 20px 10px 20px;
   }
 
-  /* Stack vertical */
-  .diagram-row {
-    flex-direction: column;
-    align-items: center;
-    gap: 0;
-  }
-
+  /* Nodos más chicos */
   .device-node {
-    min-width: auto;
+    min-width: 56px;
   }
 
   .device-icon {
-    width: 60px;
-    height: 60px;
+    width: 48px;
+    height: 48px;
   }
   .device-icon svg {
-    width: 28px;
-    height: 28px;
+    width: 22px;
+    height: 22px;
   }
 
-  /* Puente en modo vertical */
+  .device-name {
+    font-size: 10px;
+  }
+
+  .device-detail {
+    font-size: 8px;
+    max-width: 70px;
+  }
+
+  /* Puentes más angostos */
   .connection-bridge {
-    flex-direction: row;
-    align-items: center;
-    gap: 10px;
-    min-width: auto;
-    max-width: none;
-    width: auto;
-    padding: 4px 0;
-    margin: -2px 0;
+    min-width: 50px;
+    gap: 4px;
+    padding: 0 2px;
   }
 
-  /* La línea ahora es vertical */
   .bridge-line {
-    width: 28px;
-    height: 40px;
-    flex-shrink: 0;
+    height: 20px;
   }
 
-  /* Línea vertical punteada/sólida */
-  .bridge-line::before {
-    top: 8px;
-    bottom: 8px;
-    left: 50%;
-    right: auto;
-    width: 2px;
-    height: auto;
-    background: repeating-linear-gradient(
-      to bottom,
-      var(--border-hi) 0,
-      var(--border-hi) 6px,
-      transparent 6px,
-      transparent 10px
-    );
+  .btn-sm {
+    padding: 4px 10px;
+    font-size: 10px;
+    border-radius: 5px;
   }
 
-  .connection-bridge.active .bridge-line::before {
-    background: var(--ceibal);
-    width: 2px;
-  }
-
-  /* Flecha abajo (→ se convierte en ↓) */
-  .bridge-line::after {
-    right: auto;
-    bottom: 0;
-    top: auto;
-    left: 50%;
-    transform: translateX(-50%);
-    border-left: 5px solid transparent;
-    border-right: 5px solid transparent;
-    border-top: 7px solid var(--border-hi);
-    border-bottom: none;
-  }
-  .connection-bridge.active .bridge-line::after {
-    border-top-color: var(--ceibal);
-    border-left-color: transparent;
-  }
-
-  /* Flecha arriba (← se convierte en ↑) */
-  .bridge-arrow-left {
-    top: 0;
-    bottom: auto;
-    left: 50%;
-    transform: translateX(-50%);
-    border-left: 5px solid transparent;
-    border-right: 5px solid transparent;
-    border-bottom: 7px solid var(--border-hi);
-    border-top: none;
-    border-right-color: transparent;
-  }
-  .connection-bridge.active .bridge-arrow-left {
-    border-bottom-color: var(--ceibal);
-    border-right-color: transparent;
-  }
-
-  /* Status bar más compacto */
+  /* Status bar */
   .status-bar {
-    padding: 8px 14px;
+    padding: 8px 12px;
     font-size: 12px;
+    gap: 8px;
   }
 
   .sensor-grid {
