@@ -137,7 +137,8 @@ export class LabdiscConnection {
       this.port = await navigator.serial.requestPort();
       await this.port.open({ baudRate: BAUD_RATE });
 
-      this._setState(ConnectionState.CONNECTED);
+      // Puerto abierto, pero aún no "conectado" visualmente.
+      // Nos quedamos en CONNECTING hasta que el handshake termine.
       this._log('info', 'Puerto abierto a ' + BAUD_RATE + ' baud');
 
       // Iniciar el read loop. Guardamos la Promise para poder
@@ -151,6 +152,18 @@ export class LabdiscConnection {
       // Step 2: Get current status (duplicated)
       await this._sleep(800);
       await this._sendDuplicated(CMD.GET_SENSOR_STATUS, 'GetSensorStatus');
+
+      // Esperar un poco para que lleguen las respuestas del Labdisc
+      // (los paquetes 0x82 y 0x83 que el parser procesa en _readLoop)
+      await this._sleep(500);
+
+      // Recién ahora marcamos CONNECTED — el handshake terminó,
+      // el parser ya tiene los sensorIds y el deviceStatus.
+      // Esto es lo que hace que el diagrama se ilumine en la UI.
+      if (!this._disconnecting && this.port) {
+        this._setState(ConnectionState.CONNECTED);
+        this._log('info', 'Labdisc conectado — handshake completo');
+      }
 
     } catch (e) {
       if (e.name !== 'NotFoundError') this._log('err', 'Conexion: ' + e.message);

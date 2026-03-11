@@ -185,6 +185,20 @@ body {
   color: var(--ceibal);
 }
 
+/* Estado conectando: borde ámbar pulsante, icono ámbar */
+.device-node.connecting .device-icon {
+  border-color: var(--amber);
+  background: #FEF7EC;
+  animation: pulse-connecting 1.2s ease-in-out infinite;
+}
+.device-node.connecting .device-icon svg {
+  color: var(--amber);
+}
+@keyframes pulse-connecting {
+  0%, 100% { box-shadow: 0 0 0 0px rgba(232,155,28,0.2); }
+  50% { box-shadow: 0 0 0 6px rgba(232,155,28,0.1); }
+}
+
 .device-name {
   font-size: 13px;
   font-weight: 600;

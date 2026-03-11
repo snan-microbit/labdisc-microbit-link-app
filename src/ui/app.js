@@ -73,31 +73,36 @@ function renderState() {
   const s = bridge.getState();
 
   // ── Labdisc connection ──
-  const labConn = s.labdisc !== ConnectionState.DISCONNECTED;
+  // Distinguimos 3 estados para la UI:
+  // - DISCONNECTED: nodo gris, puente punteado
+  // - CONNECTING: nodo pulsando, puente punteado, botón deshabilitado
+  // - CONNECTED (o STREAMING): nodo teal, puente sólido
+  const labConn = s.labdisc === ConnectionState.CONNECTED || s.labdisc === ConnectionState.STREAMING;
+  const labConnecting = s.labdisc === ConnectionState.CONNECTING;
 
-  // Nodo del diagrama: agregar/quitar clase "connected"
+  // Nodo del diagrama
   const labNode = $('labNode');
-  if (labConn) {
-    labNode.classList.add('connected');
-  } else {
-    labNode.classList.remove('connected');
-  }
+  labNode.classList.toggle('connected', labConn);
+  labNode.classList.toggle('connecting', labConnecting);
 
-  // Puente Labdisc↔App: agregar/quitar clase "active"
+  // Puente Labdisc↔App
   const labBridge = $('labBridge');
-  if (labConn) {
-    labBridge.classList.add('active');
-  } else {
-    labBridge.classList.remove('active');
-  }
+  labBridge.classList.toggle('active', labConn);
 
   // Botón conectar/desconectar
   const btnLab = $('btnLabdisc');
-  btnLab.textContent = labConn ? 'Desconectar' : 'Conectar';
-  btnLab.className = `btn btn-sm ${labConn ? 'btn-disconnect' : 'btn-connect'}`;
+  if (labConnecting) {
+    btnLab.textContent = 'Conectando...';
+    btnLab.className = 'btn btn-sm btn-connect';
+    btnLab.disabled = true;
+  } else {
+    btnLab.textContent = labConn ? 'Desconectar' : 'Conectar';
+    btnLab.className = `btn btn-sm ${labConn ? 'btn-disconnect' : 'btn-connect'}`;
+    btnLab.disabled = false;
+  }
 
-  // Detalle del Labdisc — simple "Conectado" como micro:bit
-  $('labDetail').textContent = labConn ? 'Conectado' : '';
+  // Detalle del Labdisc
+  $('labDetail').textContent = labConn ? 'Conectado' : (labConnecting ? 'Conectando...' : '');
 
   // ── micro:bit connection ──
   const microConn = s.microbit === BleState.CONNECTED;
