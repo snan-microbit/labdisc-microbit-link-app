@@ -1,7 +1,7 @@
 /**
  * bridge.js — Data bridge orchestrator
  * 
- * v4.0 — Polling architecture
+ * v5.0 — Fix auto-stream re-start on manual stop
  * 
  * Coordinates the flow: Labdisc → decode → convert → format → micro:bit
  * 
@@ -11,6 +11,19 @@
  * - Both devices connected → auto-start polling at current hz
  * - micro:bit disconnects during auto-stream → auto-stop
  * - Manual stream (button) → works without micro:bit, no auto-stop
+ * - Manual stop → inhibits auto-start until micro:bit reconnects
+ * 
+ * BUGFIX v5.0:
+ * El bug anterior: manualStopStream() paraba el polling, pero el cambio
+ * de estado (STREAMING → CONNECTED) disparaba onStateChange en labdisc,
+ * que llamaba _checkAutoStream(). Como ambos dispositivos seguían
+ * conectados y el streaming ya no estaba activo, _checkAutoStream()
+ * lo re-iniciaba inmediatamente. El usuario veía que el Stop "no hacía nada".
+ * 
+ * Solución: flag `_manualStop` que se enciende en manualStopStream().
+ * _checkAutoStream() lo respeta y no re-inicia. Se resetea cuando:
+ *   - La micro:bit se desconecta (ciclo limpio)
+ *   - El usuario inicia manualmente de nuevo
  */
 
 import { LabdiscConnection, ConnectionState } from '../labdisc/connection.js';
@@ -28,6 +41,14 @@ export class Bridge {
 
     /** true if streaming was started by auto-stream (not manual button) */
     this._autoStarted = false;
+
+    /**
+     * true cuando el usuario explícitamente detuvo el stream.
+     * Impide que _checkAutoStream() re-inicie automáticamente.
+     * Se resetea cuando la micro:bit se desconecta o el usuario
+     * inicia manualmente de nuevo.
+     */
+    this._manualStop = false;
 
     this.onUpdate = null;
     this.onLog = null;
@@ -56,6 +77,7 @@ export class Bridge {
   async manualStartStream() {
     if (!this.labdisc.isConnected || this.labdisc.isStreaming) return;
     this._autoStarted = false;
+    this._manualStop = false;  // ← usuario quiere streaming, desbloquear auto-start
     this.labdisc.startPolling();
     this.uartSentCount = 0;
     this._update();
@@ -65,7 +87,9 @@ export class Bridge {
   async manualStopStream() {
     if (!this.labdisc.isStreaming) return;
     this._autoStarted = false;
+    this._manualStop = true;   // ← inhibir auto-start
     this.labdisc.stopPolling();
+    this._log('info', 'Stream detenido manualmente');
     this._update();
   }
 
@@ -130,23 +154,39 @@ export class Bridge {
 
   // ─── Auto-stream logic ───
 
+  /**
+   * Decide si iniciar/detener el polling automáticamente.
+   * 
+   * Reglas:
+   *   1. Ambos conectados + no streaming + no inhibido → auto-start
+   *   2. micro:bit perdida + auto-started → auto-stop + reset _manualStop
+   * 
+   * El flag _manualStop impide que la regla 1 se active después de que
+   * el usuario detuvo explícitamente el stream. Esto evita el bug donde
+   * Stop parecía no funcionar (se re-iniciaba inmediatamente).
+   * 
+   * _manualStop se resetea cuando:
+   *   - La micro:bit se desconecta (regla 2) → próxima reconexión inicia limpio
+   *   - El usuario hace manualStartStream() → explícitamente quiere streaming
+   */
   _checkAutoStream() {
     const labReady = this.labdisc.state === ConnectionState.CONNECTED;
     const microReady = this.microbit.state === BleState.CONNECTED;
     const streaming = this.labdisc.isStreaming;
 
-    // Both connected + not streaming → auto-start
-    if (labReady && microReady && !streaming && this.labdisc.sensorIds.length > 0) {
+    // Regla 1: Both connected + not streaming + not inhibited → auto-start
+    if (labReady && microReady && !streaming && !this._manualStop && this.labdisc.sensorIds.length > 0) {
       this._log('info', 'Ambos conectados — auto-start polling');
       this._autoStarted = true;
       this.labdisc.startPolling();
       this.uartSentCount = 0;
     }
 
-    // micro:bit lost + was auto-started → auto-stop
+    // Regla 2: micro:bit lost + was auto-started → auto-stop
     if (!microReady && streaming && this._autoStarted) {
       this._log('info', 'micro:bit perdida — auto-stop polling');
       this._autoStarted = false;
+      this._manualStop = false;  // ← reset para que al reconectar funcione auto-start
       this.labdisc.stopPolling();
     }
   }

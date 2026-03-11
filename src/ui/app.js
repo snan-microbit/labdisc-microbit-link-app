@@ -1,9 +1,17 @@
 /**
  * app.js — UI controller
  * 
- * v4.0 — Polling architecture
+ * v5.0 — Ceibal themed, connection diagram UI
  * 
  * Wires the Bridge module to DOM elements.
+ * 
+ * Cambios vs v4.0:
+ * - El diagrama de conexión muestra 3 nodos y 2 puentes
+ * - Al conectar un dispositivo, su nodo se ilumina (clase "connected")
+ *   y el puente correspondiente se activa (clase "active")
+ * - Frecuencia y log están en una sección colapsable
+ * - Los status dots se reemplazaron por los nodos del diagrama
+ * 
  * Exposes `window.bridge` for console debugging.
  */
 
@@ -29,7 +37,7 @@ window.bridge = bridge;
 bridge.onLog = (type, msg) => logger.log(type, msg);
 bridge.onUpdate = () => renderState();
 
-// ─── Button handlers ───
+// ─── Button handlers (global, called from onclick in HTML) ───
 
 window.handleLabdisc = async () => {
   if (bridge.labdisc.isConnected) {
@@ -64,56 +72,94 @@ window.handleManualStream = async () => {
 function renderState() {
   const s = bridge.getState();
 
-  // Labdisc connection
-  const labConn = s.labdisc !== ConnectionState.DISCONNECTED;
-  $('labDot').className = `status-dot ${labConn ? 'on' : ''}`;
-  $('labStatus').textContent = labConn ? 'Conectado' : 'Desconectado';
-  $('labStatus').className = `status-text ${labConn ? 'on' : ''}`;
-  $('btnLabdisc').textContent = labConn ? 'Desconectar' : 'Conectar';
-  $('btnLabdisc').className = `btn ${labConn ? 'danger' : 'primary'}`;
+  // ── Labdisc connection ──
+  // Distinguimos 3 estados para la UI:
+  // - DISCONNECTED: nodo gris, puente punteado
+  // - CONNECTING: nodo pulsando, puente punteado, botón deshabilitado
+  // - CONNECTED (o STREAMING): nodo teal, puente sólido
+  const labConn = s.labdisc === ConnectionState.CONNECTED || s.labdisc === ConnectionState.STREAMING;
+  const labConnecting = s.labdisc === ConnectionState.CONNECTING;
 
-  // Labdisc detail
-  if (s.deviceStatus) {
-    $('labDetail').textContent = `FW ${s.deviceStatus.firmware} · ${s.sensorIds.length} sensores · ${s.deviceStatus.date} ${s.deviceStatus.time}`;
-  } else if (labConn) {
-    $('labDetail').textContent = 'Obteniendo info...';
+  // Nodo del diagrama
+  const labNode = $('labNode');
+  labNode.classList.toggle('connected', labConn);
+  labNode.classList.toggle('connecting', labConnecting);
+
+  // Puente Labdisc↔App
+  const labBridge = $('labBridge');
+  labBridge.classList.toggle('active', labConn);
+
+  // Botón conectar/desconectar
+  const btnLab = $('btnLabdisc');
+  if (labConnecting) {
+    btnLab.textContent = 'Conectando...';
+    btnLab.className = 'btn btn-sm btn-connect';
+    btnLab.disabled = true;
   } else {
-    $('labDetail').textContent = '';
+    btnLab.textContent = labConn ? 'Desconectar' : 'Conectar';
+    btnLab.className = `btn btn-sm ${labConn ? 'btn-disconnect' : 'btn-connect'}`;
+    btnLab.disabled = false;
   }
 
-  // micro:bit connection
-  const microConn = s.microbit === BleState.CONNECTED;
-  $('microDot').className = `status-dot ${microConn ? 'on' : ''}`;
-  $('microStatus').textContent = microConn ? 'Conectada' : 'Desconectada';
-  $('microStatus').className = `status-text ${microConn ? 'on' : ''}`;
-  $('btnMicrobit').textContent = microConn ? 'Desconectar' : 'Conectar';
-  $('btnMicrobit').className = `btn ${microConn ? 'danger' : 'primary'}`;
+  // Detalle del Labdisc
+  $('labDetail').textContent = labConn ? 'Conectado' : (labConnecting ? 'Conectando...' : '');
 
-  // Streaming status
+  // ── micro:bit connection ──
+  const microConn = s.microbit === BleState.CONNECTED;
+  const microConnecting = s.microbit === BleState.CONNECTING;
+
+  const microNode = $('microNode');
+  microNode.classList.toggle('connected', microConn);
+  microNode.classList.toggle('connecting', microConnecting);
+
+  const microBridge = $('microBridge');
+  microBridge.classList.toggle('active', microConn);
+
+  const btnMicro = $('btnMicrobit');
+  if (microConnecting) {
+    btnMicro.textContent = 'Conectando...';
+    btnMicro.className = 'btn btn-sm btn-connect';
+    btnMicro.disabled = true;
+  } else {
+    btnMicro.textContent = microConn ? 'Desconectar' : 'Conectar';
+    btnMicro.className = `btn btn-sm ${microConn ? 'btn-disconnect' : 'btn-connect'}`;
+    btnMicro.disabled = false;
+  }
+
+  $('microDetail').textContent = microConn ? 'Conectada' : (microConnecting ? 'Conectando...' : '');
+
+  // ── Streaming status ──
   const streaming = s.labdisc === ConnectionState.STREAMING;
+
+  // Dot indicator
+  const streamDot = $('streamDot');
+  streamDot.className = `status-indicator ${streaming ? 'streaming' : ''}`;
+
+  // Status text
   const streamLabel = streaming
     ? `${s.pollHz} Hz · ${s.packetCount} pkt${s.uartSentCount > 0 ? ' · → ' + s.uartSentCount + ' uart' : ''}`
     : 'Idle';
-  $('streamStatus').textContent = streamLabel;
-  $('streamStatus').className = `stream-status ${streaming ? 'active' : ''}`;
+  const streamEl = $('streamStatus');
+  streamEl.textContent = streamLabel;
+  streamEl.className = `status-text-main ${streaming ? 'active' : ''}`;
 
-  // Manual stream button
+  // Manual stream button — mismo esquema de colores que conectar/desconectar
   $('btnStream').textContent = streaming ? '⏹ Stop' : '▶ Stream';
-  $('btnStream').className = `btn ${streaming ? 'danger' : 'accent'}`;
+  $('btnStream').className = `btn btn-sm ${streaming ? 'btn-disconnect' : 'btn-connect'}`;
   $('btnStream').disabled = !labConn;
 
-  // UART line (shows even without micro:bit, for debug)
+  // ── UART debug line ──
   if (s.lastUartLine) {
     $('uartInfo').textContent = s.uartSentCount > 0
-      ? `→ micro:bit: ${s.uartSentCount} líneas`
-      : '→ UART (micro:bit no conectada)';
+      ? `→ micro:bit: ${s.uartSentCount} líneas · `
+      : '→ UART (micro:bit no conectada) · ';
     $('uartLine').textContent = s.lastUartLine;
   } else {
     $('uartInfo').textContent = '';
     $('uartLine').textContent = '';
   }
 
-  // Sensor values (debug view)
+  // ── Sensor values ──
   renderSensorValues(s.displayValues);
 }
 
