@@ -8,6 +8,9 @@
 <meta name="theme-color" content="#1A9E8F">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔬</text></svg>">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
@@ -812,5 +815,20 @@ body {
 </div>
 
 <script type="module" src="src/ui/app.js"></script>
+
+<!-- Registro del Service Worker — necesario para que Chrome ofrezca instalar la PWA -->
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('./sw.js')
+      .then(function(reg) {
+        console.log('[PWA] Service Worker registrado:', reg.scope);
+      })
+      .catch(function(err) {
+        console.log('[PWA] Service Worker error:', err);
+      });
+  });
+}
+</script>
 </body>
 </html>
