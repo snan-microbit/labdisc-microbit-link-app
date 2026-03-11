@@ -96,14 +96,8 @@ function renderState() {
   btnLab.textContent = labConn ? 'Desconectar' : 'Conectar';
   btnLab.className = `btn btn-sm ${labConn ? 'btn-disconnect' : 'btn-connect'}`;
 
-  // Detalle del Labdisc (firmware, sensores, fecha)
-  if (s.deviceStatus) {
-    $('labDetail').textContent = `FW ${s.deviceStatus.firmware} · ${s.sensorIds.length} sensores`;
-  } else if (labConn) {
-    $('labDetail').textContent = 'Obteniendo info...';
-  } else {
-    $('labDetail').textContent = '';
-  }
+  // Detalle del Labdisc — simple "Conectado" como micro:bit
+  $('labDetail').textContent = labConn ? 'Conectado' : '';
 
   // ── micro:bit connection ──
   const microConn = s.microbit === BleState.CONNECTED;
