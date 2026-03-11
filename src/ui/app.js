@@ -106,26 +106,27 @@ function renderState() {
 
   // ── micro:bit connection ──
   const microConn = s.microbit === BleState.CONNECTED;
+  const microConnecting = s.microbit === BleState.CONNECTING;
 
   const microNode = $('microNode');
-  if (microConn) {
-    microNode.classList.add('connected');
-  } else {
-    microNode.classList.remove('connected');
-  }
+  microNode.classList.toggle('connected', microConn);
+  microNode.classList.toggle('connecting', microConnecting);
 
   const microBridge = $('microBridge');
-  if (microConn) {
-    microBridge.classList.add('active');
-  } else {
-    microBridge.classList.remove('active');
-  }
+  microBridge.classList.toggle('active', microConn);
 
   const btnMicro = $('btnMicrobit');
-  btnMicro.textContent = microConn ? 'Desconectar' : 'Conectar';
-  btnMicro.className = `btn btn-sm ${microConn ? 'btn-disconnect' : 'btn-connect'}`;
+  if (microConnecting) {
+    btnMicro.textContent = 'Conectando...';
+    btnMicro.className = 'btn btn-sm btn-connect';
+    btnMicro.disabled = true;
+  } else {
+    btnMicro.textContent = microConn ? 'Desconectar' : 'Conectar';
+    btnMicro.className = `btn btn-sm ${microConn ? 'btn-disconnect' : 'btn-connect'}`;
+    btnMicro.disabled = false;
+  }
 
-  $('microDetail').textContent = microConn ? 'Conectada' : '';
+  $('microDetail').textContent = microConn ? 'Conectada' : (microConnecting ? 'Conectando...' : '');
 
   // ── Streaming status ──
   const streaming = s.labdisc === ConnectionState.STREAMING;
@@ -142,9 +143,9 @@ function renderState() {
   streamEl.textContent = streamLabel;
   streamEl.className = `status-text-main ${streaming ? 'active' : ''}`;
 
-  // Manual stream button
+  // Manual stream button — mismo esquema de colores que conectar/desconectar
   $('btnStream').textContent = streaming ? '⏹ Stop' : '▶ Stream';
-  $('btnStream').className = `btn btn-sm ${streaming ? 'btn-disconnect' : 'btn-accent'}`;
+  $('btnStream').className = `btn btn-sm ${streaming ? 'btn-disconnect' : 'btn-connect'}`;
   $('btnStream').disabled = !labConn;
 
   // ── UART debug line ──
