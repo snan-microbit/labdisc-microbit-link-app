@@ -612,24 +612,123 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   RESPONSIVE
-   En pantallas chicas el diagrama se vuelve vertical
+   RESPONSIVE — Layout vertical en móvil
+   
+   En pantallas angostas el diagrama pasa de horizontal a vertical:
+   los nodos se apilan y los puentes se redimensionan con flechas
+   que apuntan hacia abajo (↓↑) en vez de izquierda/derecha (←→).
+   
+   No usamos rotate() porque eso no cambia el espacio en el layout
+   y causa recortes. En cambio redefinimos la geometría del puente.
    ═══════════════════════════════════════════════════════════ */
 @media (max-width: 580px) {
-  .diagram-row {
-    flex-direction: column;
-    gap: 0;
+  .app {
+    padding: 16px 12px 32px;
   }
 
-  .connection-bridge {
-    transform: rotate(90deg);
-    min-width: 100px;
-    max-width: 100px;
-    margin: -4px 0;
+  .connection-diagram {
+    padding: 20px 16px 24px;
+  }
+
+  /* Stack vertical */
+  .diagram-row {
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
   }
 
   .device-node {
     min-width: auto;
+  }
+
+  .device-icon {
+    width: 60px;
+    height: 60px;
+  }
+  .device-icon svg {
+    width: 28px;
+    height: 28px;
+  }
+
+  /* Puente en modo vertical */
+  .connection-bridge {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    min-width: auto;
+    max-width: none;
+    width: auto;
+    padding: 4px 0;
+    margin: -2px 0;
+  }
+
+  /* La línea ahora es vertical */
+  .bridge-line {
+    width: 28px;
+    height: 40px;
+    flex-shrink: 0;
+  }
+
+  /* Línea vertical punteada/sólida */
+  .bridge-line::before {
+    top: 8px;
+    bottom: 8px;
+    left: 50%;
+    right: auto;
+    width: 2px;
+    height: auto;
+    background: repeating-linear-gradient(
+      to bottom,
+      var(--border-hi) 0,
+      var(--border-hi) 6px,
+      transparent 6px,
+      transparent 10px
+    );
+  }
+
+  .connection-bridge.active .bridge-line::before {
+    background: var(--ceibal);
+    width: 2px;
+  }
+
+  /* Flecha abajo (→ se convierte en ↓) */
+  .bridge-line::after {
+    right: auto;
+    bottom: 0;
+    top: auto;
+    left: 50%;
+    transform: translateX(-50%);
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 7px solid var(--border-hi);
+    border-bottom: none;
+  }
+  .connection-bridge.active .bridge-line::after {
+    border-top-color: var(--ceibal);
+    border-left-color: transparent;
+  }
+
+  /* Flecha arriba (← se convierte en ↑) */
+  .bridge-arrow-left {
+    top: 0;
+    bottom: auto;
+    left: 50%;
+    transform: translateX(-50%);
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-bottom: 7px solid var(--border-hi);
+    border-top: none;
+    border-right-color: transparent;
+  }
+  .connection-bridge.active .bridge-arrow-left {
+    border-bottom-color: var(--ceibal);
+    border-right-color: transparent;
+  }
+
+  /* Status bar más compacto */
+  .status-bar {
+    padding: 8px 14px;
+    font-size: 12px;
   }
 
   .sensor-grid {
