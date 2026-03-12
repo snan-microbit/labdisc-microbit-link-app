@@ -23,19 +23,26 @@ import { SENSORS, UART_ORDER_A, UART_ORDER_B, NO_DATA_VALUE } from '../labdisc/s
  * Format sensor values into two UART CSV lines.
  * 
  * @param {Object} values - Parsed sensor values from LabdiscParser.onData
+ * @param {Object|null} extOverride - External sensor override (from parser)
  * @returns {string[]} Array of two lines: ["A,...\n", "B,...\n"]
  */
-export function formatForUART(values) {
-  var lineA = 'A,' + _formatFields(values, UART_ORDER_A).join(',') + '\n';
-  var lineB = 'B,' + _formatFields(values, UART_ORDER_B).join(',') + '\n';
+export function formatForUART(values, extOverride) {
+  var lineA = 'A,' + _formatFields(values, UART_ORDER_A, extOverride).join(',') + '\n';
+  var lineB = 'B,' + _formatFields(values, UART_ORDER_B, extOverride).join(',') + '\n';
   return [lineA, lineB];
 }
 
-function _formatFields(values, order) {
+function _formatFields(values, order, extOverride) {
   var parts = [];
   for (var i = 0; i < order.length; i++) {
     var entry = order[i];
     var data = values[entry.id];
+
+    // Use external sensor factor if this entry is overridden
+    var factor = entry.factor;
+    if (extOverride && entry.id === extOverride.replacesId && !entry.gpsField) {
+      factor = extOverride.factor;
+    }
 
     if (entry.gpsField) {
       var gpsValue = _extractGPSField(data, entry.gpsField);
@@ -50,7 +57,7 @@ function _formatFields(values, order) {
     if (!data || data.noData || data.value === null || data.value === undefined) {
       parts.push(NO_DATA_VALUE);
     } else {
-      parts.push(Math.round(data.value * entry.factor));
+      parts.push(Math.round(data.value * factor));
     }
   }
   return parts;
@@ -58,9 +65,8 @@ function _formatFields(values, order) {
 
 /**
  * Format sensor values for human-readable debug display.
- * (Unchanged — uses full UART_ORDER for display)
  */
-export function formatForDisplay(values) {
+export function formatForDisplay(values, extOverride) {
   var allOrder = UART_ORDER_A.concat(UART_ORDER_B);
   var result = [];
 
@@ -68,38 +74,48 @@ export function formatForDisplay(values) {
     var entry = allOrder[i];
     var sensor = SENSORS[entry.id];
 
+    // Override name/unit for external sensor
+    var displayName = entry.name;
+    var displayUnit = entry.unit;
+    var displayDec = sensor ? sensor.dec : 1;
+    if (extOverride && entry.id === extOverride.replacesId && !entry.gpsField) {
+      displayName = extOverride.name;
+      displayUnit = extOverride.unit;
+      displayDec = extOverride.dec;
+    }
+
     if (entry.gpsField) {
       var data = values[entry.id];
       var gpsValue = _extractGPSField(data, entry.gpsField);
 
       if (gpsValue === null) {
         result.push({
-          id: entry.id, name: entry.name, value: 'n/c',
-          unit: entry.unit || '', hasData: false,
+          id: entry.id, name: displayName, value: 'n/c',
+          unit: displayUnit || '', hasData: false,
         });
       } else {
         var decimals = (entry.gpsField === 'lat' || entry.gpsField === 'lon') ? 5 : 1;
         result.push({
-          id: entry.id, name: entry.name, value: gpsValue.toFixed(decimals),
-          unit: entry.unit || '', hasData: true,
+          id: entry.id, name: displayName, value: gpsValue.toFixed(decimals),
+          unit: displayUnit || '', hasData: true,
         });
       }
       continue;
     }
 
     var data = values[entry.id];
-    if (!sensor) continue;
+    if (!sensor && !extOverride) continue;
 
     if (!data || data.noData || data.value === null) {
       result.push({
-        id: entry.id, name: entry.name || sensor.name, value: 'n/c',
-        unit: entry.unit || sensor.unit, hasData: false,
+        id: entry.id, name: displayName, value: 'n/c',
+        unit: displayUnit, hasData: false,
       });
     } else {
       result.push({
-        id: entry.id, name: entry.name || sensor.name,
-        value: data.value.toFixed(sensor.dec),
-        unit: entry.unit || sensor.unit, hasData: true,
+        id: entry.id, name: displayName,
+        value: data.value.toFixed(displayDec),
+        unit: displayUnit, hasData: true,
       });
     }
   }

@@ -14,7 +14,7 @@
  */
 
 import { RSP, FIXED_LENGTHS, NO_DATA_0x8000, NO_DATA_0x0000, STATUS_SUB, RATE_TABLE, COUNT_TABLE, verifyChecksum } from './protocol.js';
-import { SENSORS, decodeGPSCoord } from './sensors.js';
+import { SENSORS, EXTERNAL_SENSORS, decodeGPSCoord } from './sensors.js';
 
 export class LabdiscParser {
   constructor() {
@@ -23,6 +23,13 @@ export class LabdiscParser {
 
     /** @type {number[]} Sensor IDs in the order reported by the device */
     this.sensorIds = [];
+
+    /**
+     * Override for Ext Analog slot when an external sensor is connected.
+     * Detected from sensorIds (IDs >= 128 are external sensors).
+     * @type {Object|null} Sensor definition from EXTERNAL_SENSORS, or null
+     */
+    this.externalSensorOverride = null;
 
     /** @type {number} Running count of data packets received */
     this.packetCount = 0;
@@ -73,6 +80,7 @@ export class LabdiscParser {
     this.sensorIds = [];
     this.packetCount = 0;
     this.experimentLog = [];
+    this.externalSensorOverride = null;
   }
 
   // ─── Private: buffer processing ───
@@ -237,12 +245,29 @@ export class LabdiscParser {
     for (let i = 3; i < pkt.length - 1; i++) {
       if (pkt[i] !== 0) ids.push(pkt[i]);
     }
-    this.sensorIds = ids;
 
-    this._log('rx', `SensorIDs: [${ids.join(',')}] (${ids.length} sensores)`);
+    // Detect external sensors (ID >= 128) — they replace Ext Analog slot
+    this.externalSensorOverride = null;
+    const coreIds = [];
+    for (const id of ids) {
+      if (EXTERNAL_SENSORS[id]) {
+        this.externalSensorOverride = EXTERNAL_SENSORS[id];
+        this._log('info', `Sensor externo detectado: ${this.externalSensorOverride.name} (ID ${id}) → reemplaza ${this.externalSensorOverride.replacesId}`);
+        // Don't add to coreIds — external sensor shares the slot of replacesId
+      } else {
+        coreIds.push(id);
+      }
+    }
 
-    const names = ids.map(id => {
+    this.sensorIds = coreIds;
+
+    this._log('rx', `SensorIDs: [${ids.join(',')}] (${ids.length} total, ${coreIds.length} core)`);
+
+    const names = coreIds.map(id => {
       const s = SENSORS[id];
+      if (id === 32 && this.externalSensorOverride) {
+        return `${this.externalSensorOverride.name}(${id}←ext)`;
+      }
       return s ? `${s.name}(${id})` : `?(${id})`;
     }).join(', ');
     this._log('info', names);
@@ -369,10 +394,16 @@ export class LabdiscParser {
       || (raw === 0x8000 && NO_DATA_0x8000.has(sid))
       || (raw === 0x0000 && NO_DATA_0x0000.has(sid));
 
+    // Use external sensor formula if this slot is overridden
+    var effectiveSensor = sensor;
+    if (this.externalSensorOverride && sid === this.externalSensorOverride.replacesId) {
+      effectiveSensor = this.externalSensorOverride;
+    }
+
     let value = null;
-    if (!isNoData && sensor && sensor.convert) {
+    if (!isNoData && effectiveSensor && effectiveSensor.convert) {
       try {
-        value = sensor.convert(raw);
+        value = effectiveSensor.convert(raw);
         if (!Number.isFinite(value)) value = null;
       } catch (e) {
         value = null;

@@ -125,9 +125,10 @@ export class Bridge {
     this.labdisc.onStatus = () => this._update();
 
     this.labdisc.onData = async (values, count) => {
-      this.displayValues = formatForDisplay(values);
+      const extOverride = this.labdisc.parser.externalSensorOverride;
+      this.displayValues = formatForDisplay(values, extOverride);
 
-      const lines = formatForUART(values);
+      const lines = formatForUART(values, extOverride);
       this.lastUartLine = lines[0].trim() + ' | ' + lines[1].trim();
 
       if (this.microbit.isConnected) {

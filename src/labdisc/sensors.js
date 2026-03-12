@@ -117,6 +117,32 @@ export const SENSORS = Object.freeze({
 });
 
 /**
+ * Sensores externos que se conectan al Labdisc por micro-USB.
+ * 
+ * Cuando un sensor externo está conectado, el Labdisc agrega su ID
+ * al final de la lista de sensorIds (e.g., [26,25,...,33,128]).
+ * El sensor externo REEMPLAZA el slot de Ext Analog (ID 32) en el
+ * paquete 0x81 — no agrega bytes extra.
+ * 
+ * El bridge detecta estos IDs y aplica la fórmula de conversión
+ * correcta automáticamente.
+ */
+export const EXTERNAL_SENSORS = Object.freeze({
+  128: {
+    name: 'CO₂',
+    unit: 'ppm',
+    dec: 0,
+    bytes: 2,
+    factor: 1,
+    maxHz: 10,
+    replacesId: 32,  // Reemplaza el slot de Ext Analog en el paquete 0x81
+    convert: r => r * 92 / 502,  // Confirmado: raw 2252 → 412 ppm (GlobiLab X)
+  },
+  // Agregar más sensores externos acá cuando se identifiquen:
+  // 129: { name: 'O₂', unit: 'ppm', ... },
+});
+
+/**
  * Build a sensor mask that excludes sensors below the target frequency.
  * 
  * @param {number[]} sensorIds - Sensor IDs in device order
